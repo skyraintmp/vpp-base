@@ -15,7 +15,7 @@ jobs:
     name: "VPP ${{ matrix.tag }}"
     runs-on: ubuntu-latest
     env:
-      DOCKER_REPO: ligato/vpp-base
+      DOCKER_REPO: skyrain/vpp-base
       REPO: ${{ matrix.repo }}
       TAG: ${{ matrix.tag }}
     strategy:
@@ -40,9 +40,20 @@ jobs:
     - name: "Checkout"
       uses: actions/checkout@v2
 
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v1
+
+    - name: Set up Docker Buildx
+      id: buildx
+      uses: docker/setup-buildx-action@v1
+
     - name: "Build image"
       run: |
-        docker build --build-arg REPO="$REPO" --tag "$DOCKER_REPO:$TAG" .
+        docker buildx build --cache-from "type=local,src=/tmp/.buildx-cache" \
+            --cache-to "type=local,dest=/tmp/.buildx-cache" \
+            --platform linux/amd64 \
+            --output "type=docker,push=false" \
+            --build-arg REPO="$REPO" --tag "$DOCKER_REPO:$TAG" .
         docker run --rm "$DOCKER_REPO:$TAG" dpkg-query -f '${Version}' -W vpp
 
     - name: "Publish image"
@@ -55,6 +66,10 @@ jobs:
           echo "Image $DOCKER_REPO:$VPP_VERSION has already been published."
         else
           docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
-          docker push "$DOCKER_REPO:$VPP_VERSION"
-          docker push "$DOCKER_REPO:$TAG"
+          docker buildx build \
+            --cache-from "type=local,src=/tmp/.buildx-cache" \
+            --platform linux/amd64,linux/arm64 \
+            --output "type=image,push=true" \
+            --tag "$DOCKER_REPO:$VPP_VERSION" \
+            --tag "$DOCKER_REPO:$TAG".
         fi
